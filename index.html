@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录诊断</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;margin:0;padding:20px;line-height:1.5}
+    h1{margin:0 0 12px;font-size:26px}
+    input,button{width:100%;padding:10px;margin:6px 0;border-radius:10px;border:1px solid #ddd;font-size:16px}
+    button{border:none;background:#111;color:#fff}
+    button.ghost{background:#f2f2f2;color:#111}
+    pre{background:#0b0b0c;color:#e5ffe5;padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word;min-height:120px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    @media (max-width:480px){.row{grid-template-columns:1fr}}
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 14px;border-radius:8px;opacity:0;transition:.25s}
+    .toast.show{opacity:1}
+  </style>
+
+  <!-- 必须：UMD 版 Supabase SDK（放在 head） -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+</head>
+<body>
+  <h1>🌙 登录诊断</h1>
+
+  <input id="url"  placeholder="Supabase URL（https://xxxx.supabase.co）">
+  <input id="key"  placeholder="anon key（以 eyJ... 开头）">
+  <input id="email" placeholder="邮箱">
+
+  <div class="row">
+    <button id="btn-send">发送验证码（直连 OTP API）</button>
+    <button id="btn-verify" class="ghost">验证（输入 6 位码）</button>
+    <button id="btn-save" class="ghost">保存配置</button>
+    <button id="btn-load" class="ghost">载入配置</button>
+  </div>
+
+  <pre id="log">这里会打印 HTTP 状态与结果。</pre>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // --- SDK 是否加载 ---
+    if(!window.supabase || !window.supabase.createClient){ alert('SDK 未加载'); }
+
+    // --- 小工具 ---
+    const $ = s => document.querySelector(s);
+    const toastEl = $('#toast');
+    const toast = m => { toastEl.textContent=m; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1600); };
+    const j = v => { try { return JSON.stringify(v,null,2);} catch{ return String(v);} };
+    const norm = v => (v||'').trim();
+
+    // --- 解析 hash（邮件回跳用）---
+    function getHashParams(){
+      const h=(location.hash||'').replace(/^#/,''); const out={}; if(!h) return out;
+      h.split('&').forEach(kv=>{ const [k,v]=kv.split('='); if(k) out[decodeURIComponent(k)] = decodeURIComponent(v||''); });
+      return out;
+    }
+
+    async function handleRedirect(){
+      const p = getHashParams();
+      if(!Object.keys(p).length) return;
+
+      const log = $('#log');
+      log.textContent = 'Redirect payload:\n' + j(p);
+
+      if(p.error){
+        if(window.toast) toast(`Auth 错误：${p.error} ${p.error_description||''}`);
+        history.replaceState(null,'',location.pathname+location.search);
+        return;
+      }
+
+      // 用本机保存的 URL/KEY 建会话
+      const URL = norm(localStorage.getItem('diag_url')||'').replace(/\/+$/,'');
+      const KEY = norm(localStorage.getItem('diag_key')||'');
+      if(URL && KEY && (p.access_token || p.refresh_token)){
+        try{
+          const sb = window.supabase.createClient(URL, KEY);
+          const { data, error } = await sb.auth.setSession({
+            access_token: p.access_token || '',
+            refresh_token: p.refresh_token || ''
+          });
+          log.textContent += '\n\nsetSession result:\n' + j({data,error});
+          if(!error) toast('Magic link 登录成功');
+        }catch(e){
+          log.textContent += '\n\nsetSession exception: ' + String(e);
+        }
+      }
+      history.replaceState(null,'',location.pathname+location.search);
+    }
+    document.addEventListener('DOMContentLoaded', handleRedirect);
+
+    // --- 直连发送 OTP（强制 6 位验证码，不走 magic link）---
+    async function sendDirect(){
+      const URL = norm($('#url').value).replace(/\/+$/,'');
+      const KEY = norm($('#key').value);
+      const email = norm($('#email').value).toLowerCase();
+      if(!URL || !KEY || !email){ toast('URL/KEY/邮箱都要填'); return; }
+
+      try{
+        const res = await fetch(`${URL}/auth/v1/otp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type':'application/json',
+            'apikey': KEY,
+            'Authorization': `Bearer ${KEY}`
+          },
+          body: JSON.stringify({ email, create_user:true, type:'email' }) // 关键
+        });
+        const body = await res.json().catch(()=>({}));
+        $('#log').textContent = `HTTP ${res.status}\n` + j(body);
+        toast(res.ok ? '已发送' : '失败');
+      }catch(e){
+        $('#log').textContent = '直连异常：' + String(e);
+        toast('异常');
+      }
+    }
+
+    // --- 验证 OTP 并登录 ---
+    async function verify(){
+      const URL = norm($('#url').value).replace(/\/+$/,'');
+      const KEY = norm($('#key').value);
+      const email = norm($('#email').value).toLowerCase();
+      const token = prompt('输入邮箱收到的 6 位验证码');
+      if(!URL || !KEY || !email || !token){ toast('参数不完整'); return; }
+
+      const sb = window.supabase.createClient(URL, KEY);
+      const { data, error } = await sb.auth.verifyOtp({ email, token, type:'email' });
+      $('#log').textContent = j({ data, error });
+      toast(error ? '验证失败' : '验证成功');
+    }
+
+    // --- 存取配置 ---
+    function saveLocal(){
+      localStorage.setItem('diag_url', $('#url').value);
+      localStorage.setItem('diag_key', $('#key').value);
+      localStorage.setItem('diag_email', $('#email').value);
+      toast('已保存');
+    }
+    function loadLocal(){
+      $('#url').value   = localStorage.getItem('diag_url')   || '';
+      $('#key').value   = localStorage.getItem('diag_key')   || '';
+      $('#email').value = localStorage.getItem('diag_email') || '';
+      toast('已载入');
+    }
+
+    // 事件绑定
+    $('#btn-send').onclick   = sendDirect;
+    $('#btn-verify').onclick = verify;
+    $('#btn-save').onclick   = saveLocal;
+    $('#btn-load').onclick   = loadLocal;
+    loadLocal(); // 进入页就尝试载入一遍
+  </script>
+</body>
+</html>
