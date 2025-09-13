@@ -96,14 +96,14 @@
       if(!URL || !KEY || !email){ toast('URL/KEY/邮箱都要填'); return; }
 
       try{
-        const res = await fetch(`${URL}/auth/v1/otp`, {
+        const res = await fetch(`${URL}/auth/v1/otp?type=email`, {
           method: 'POST',
           headers: {
             'Content-Type':'application/json',
             'apikey': KEY,
             'Authorization': `Bearer ${KEY}`
           },
-          body: JSON.stringify({ email, create_user:true, type:'email' }) // 关键
+          body: JSON.stringify({ email, create_user:true}) // 关键
         });
         const body = await res.json().catch(()=>({}));
         $('#log').textContent = `HTTP ${res.status}\n` + j(body);
