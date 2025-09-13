@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>登录诊断 · OTP</title>
+  <title>Supabase OTP 诊断 · 双通道</title>
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;margin:0;padding:20px;line-height:1.5}
     h1{margin:0 0 12px;font-size:24px}
@@ -12,103 +12,41 @@
     button.ghost{background:#f2f2f2;color:#111;border:1px solid #ddd}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     @media (max-width:520px){.row{grid-template-columns:1fr}}
-    pre{background:#0b0b0c;color:#e5ffe5;padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word;min-height:120px}
+    pre{background:#0b0b0c;color:#e5ffe5;padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word;min-height:140px}
     .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 14px;border-radius:8px;opacity:0;transition:.25s}
     .toast.show{opacity:1}
   </style>
 
-  <!-- 必须：UMD 版 Supabase SDK（放在 head，先加载） -->
+  <!-- UMD 版 SDK（必须先加载） -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
-  <h1>🌙 登录诊断 · 仅 OTP</h1>
+  <h1>🌙 Supabase OTP 诊断 · 双通道（SDK / REST）</h1>
 
   <input id="url"  placeholder="Supabase URL（https://xxxx.supabase.co）" />
   <input id="key"  placeholder="anon key（以 eyJ... 开头）" />
   <input id="email" placeholder="邮箱" />
 
   <div class="row">
-    <button id="btn-send">发送验证码（OTP）</button>
+    <button id="btn-send-sdk">发送验证码（SDK）</button>
+    <button id="btn-send-rest" class="ghost">发送验证码（REST）</button>
     <button id="btn-verify" class="ghost">验证（输入6位码）</button>
     <button id="btn-save" class="ghost">保存配置</button>
     <button id="btn-load" class="ghost">载入配置</button>
   </div>
 
-  <pre id="log">这里会打印 HTTP 状态与结果。</pre>
+  <pre id="log">这里会打印 SDK/HTTP 返回、错误信息。</pre>
   <div class="toast" id="toast"></div>
 
   <script>
-    // SDK 兜底检查
-    if(!window.supabase || !window.supabase.createClient){
-      alert('SDK 未加载'); // 如果这里弹了，说明上面的 <script> 没拉到
-    }
+    if(!window.supabase || !window.supabase.createClient){ alert('SDK 未加载'); }
 
-    // 小工具
     const $ = s => document.querySelector(s);
     const toastEl = $('#toast');
     const toast = m => { toastEl.textContent=m; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'),1600); };
-    const j = v => { try { return JSON.stringify(v,null,2); } catch { return String(v); } };
+    const j = v => { try { return JSON.stringify(v,null,2);} catch { return String(v);} };
     const norm = v => (v||'').trim();
 
-    // —— 邮件回跳（仅记录，不参与 OTP 流）——
-    function getHashParams(){
-      const h=(location.hash||'').replace(/^#/,''); const out={}; if(!h) return out;
-      h.split('&').forEach(kv=>{ const [k,v]=kv.split('='); if(k) out[decodeURIComponent(k)] = decodeURIComponent(v||''); });
-      return out;
-    }
-    (function handleRedirect(){
-      const p = getHashParams();
-      if(!Object.keys(p).length) return;
-      const log=$('#log'); log.textContent = 'Redirect payload:\n' + j(p);
-      history.replaceState(null,'',location.pathname+location.search);
-    })();
-
-    // —— 发送 6 位验证码（不是 magic link）——
-    async function sendOtp(){
-      const URL = norm($('#url').value).replace(/\/+$/,'');
-      const KEY = norm($('#key').value);
-      const email = norm($('#email').value).toLowerCase();
-      if(!URL || !KEY || !email){ toast('URL/KEY/邮箱都要填'); return; }
-
-      try{
-        // 关键：type=signup（走 Confirm signup 模板） + channel:'email'（强制验证码邮件）
-        const res = await fetch(`${URL}/auth/v1/otp?type=signup`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':'application/json',
-            apikey: KEY,
-            Authorization: `Bearer ${KEY}`
-          },
-          body: JSON.stringify({
-            email,
-            create_user: true,
-            channel: 'email'
-          })
-        });
-        const body = await res.json().catch(()=>({}));
-        $('#log').textContent = `HTTP ${res.status}\n` + j(body);
-        toast(res.ok ? '验证码已发送' : '发送失败');
-      }catch(e){
-        $('#log').textContent = '发送异常：' + String(e);
-        toast('异常');
-      }
-    }
-
-    // —— 验证 6 位验证码并登录 —— 
-    async function verify(){
-      const URL = norm($('#url').value).replace(/\/+$/,'');
-      const KEY = norm($('#key').value);
-      const email = norm($('#email').value).toLowerCase();
-      const token = prompt('输入邮箱收到的 6 位验证码'); // 简单交互
-      if(!URL || !KEY || !email || !token){ toast('参数不完整'); return; }
-
-      const sb = window.supabase.createClient(URL, KEY);
-      const { data, error } = await sb.auth.verifyOtp({ email, token, type:'email' });
-      $('#log').textContent = j({ data, error });
-      toast(error ? '验证失败' : '验证成功');
-    }
-
-    // 存取配置
     function saveLocal(){
       localStorage.setItem('diag_url', $('#url').value);
       localStorage.setItem('diag_key', $('#key').value);
@@ -122,11 +60,69 @@
       toast('已载入');
     }
 
-    // 事件绑定
-    $('#btn-send').onclick   = sendOtp;
-    $('#btn-verify').onclick = verify;
-    $('#btn-save').onclick   = saveLocal;
-    $('#btn-load').onclick   = loadLocal;
+    // —— SDK 发送 OTP（文档推荐写法）——
+    async function sendOtpSDK(){
+      const URL = norm($('#url').value).replace(/\/+$/,'');
+      const KEY = norm($('#key').value);
+      const email = norm($('#email').value).toLowerCase();
+      if(!URL||!KEY||!email){ toast('URL/KEY/邮箱都要填'); return; }
+
+      const sb = window.supabase.createClient(URL, KEY);
+      const { data, error } = await sb.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: true } // 不设置 redirectTo，避免触发 magic link 跳转
+      });
+      $('#log').textContent = 'SDK signInWithOtp →\n' + j({ data, error });
+      toast(error ? 'SDK 发送失败' : 'SDK 已发送');
+    }
+
+    // —— REST 发送 OTP（等价写法）——
+    async function sendOtpREST(){
+      const URL = norm($('#url').value).replace(/\/+$/,'');
+      const KEY = norm($('#key').value);
+      const email = norm($('#email').value).toLowerCase();
+      if(!URL||!KEY||!email){ toast('URL/KEY/邮箱都要填'); return; }
+
+      try{
+        const res = await fetch(`${URL}/auth/v1/otp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type':'application/json',
+            apikey: KEY,
+            Authorization: `Bearer ${KEY}`
+          },
+          // 关键：type:'email' 明确要求邮件验证码；不带任何 redirect/magiclink 字段
+          body: JSON.stringify({ email, create_user:true, type:'email' })
+        });
+        const body = await res.json().catch(()=>({}));
+        $('#log').textContent = `REST /otp → HTTP ${res.status}\n` + j(body);
+        toast(res.ok ? 'REST 已发送' : 'REST 发送失败');
+      }catch(e){
+        $('#log').textContent = 'REST 发送异常：' + String(e);
+        toast('异常');
+      }
+    }
+
+    // —— 验证 6 位验证码 —— 
+    async function verify(){
+      const URL = norm($('#url').value).replace(/\/+$/,'');
+      const KEY = norm($('#key').value);
+      const email = norm($('#email').value).toLowerCase();
+      const token = prompt('输入邮箱收到的 6 位验证码');
+      if(!URL||!KEY||!email||!token){ toast('参数不完整'); return; }
+
+      const sb = window.supabase.createClient(URL, KEY);
+      const { data, error } = await sb.auth.verifyOtp({ email, token, type:'email' });
+      $('#log').textContent = 'verifyOtp →\n' + j({ data, error });
+      toast(error ? '验证失败' : '验证成功');
+    }
+
+    // 绑定
+    $('#btn-send-sdk').onclick  = sendOtpSDK;
+    $('#btn-send-rest').onclick = sendOtpREST;
+    $('#btn-verify').onclick    = verify;
+    $('#btn-save').onclick      = saveLocal;
+    $('#btn-load').onclick      = loadLocal;
     loadLocal();
   </script>
 </body>
