@@ -96,7 +96,7 @@
       if(!URL || !KEY || !email){ toast('URL/KEY/邮箱都要填'); return; }
 
       try{
-        const res = await fetch(`${URL}/auth/v1/otp?type=email`, {
+        const res = await fetch(`${URL}/auth/v1/otp?type=signup`, {
           method: 'POST',
           headers: {
             'Content-Type':'application/json',
