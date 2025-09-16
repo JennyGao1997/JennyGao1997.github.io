@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>我们的世界</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    nav { margin-bottom: 20px; }
+    button { margin: 5px; padding: 6px 12px; cursor: pointer; }
+    .hidden { display: none; }
+    .card { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <nav>
+    <button onclick="showTab('draw')">抽卡</button>
+    <button onclick="showTab('moments')">朋友圈</button>
+    <button onclick="showTab('music')">音乐</button>
+    <button onclick="logout()">退出</button>
+  </nav>
+
+  <!-- 抽卡页 -->
+  <div id="tab-draw">
+    <h2>今日抽卡</h2>
+    <button id="drawBtn">抽一签</button>
+    <div id="drawResult"></div>
+    <h3>历史记录</h3>
+    <div id="drawHistory"></div>
+  </div>
+
+  <!-- 朋友圈页 -->
+  <div id="tab-moments" class="hidden">
+    <h2>朋友圈</h2>
+    <textarea id="momentInput" placeholder="写点什么..."></textarea><br/>
+    <button id="addLocal">存为私密</button>
+    <button id="addPublic">发到公开</button>
+    <button id="clearLocal">清空私密</button>
+    <button id="clearPublic">清空公开</button>
+
+    <h3>私密动态</h3>
+    <div id="localMoments"></div>
+    <h3>公开动态</h3>
+    <div id="publicMoments"></div>
+  </div>
+
+  <!-- 音乐页 -->
+  <div id="tab-music" class="hidden">
+    <h2>音乐（占位）</h2>
+    <p>这里以后加播放器 / 歌单</p>
+  </div>
+
+  <script>
+    const sb = window.supabase.createClient(
+      "https://kejqdzuwbeuemrdxxvrr.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtlanFkenV3YmV1ZW1yZHh4dnJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMjAyMzUsImV4cCI6MjA3MTg5NjIzNX0.GIwI_VODhEa5DTqEwx6Yp3tbuxc_nmqq5K31QDQLDTs"
+    );
+
+    let session = null;
+    let isGuest = localStorage.getItem("guest") === "1";
+
+    async function init() {
+      const { data } = await sb.auth.getSession();
+      session = data.session;
+      if (!session && !isGuest) {
+        location.href = "login.html";
+        return;
+      }
+      loadHistory();
+      loadLocalMoments();
+      loadPublicMoments();
+    }
+
+    function showTab(tab) {
+      document.getElementById("tab-draw").classList.add("hidden");
+      document.getElementById("tab-moments").classList.add("hidden");
+      document.getElementById("tab-music").classList.add("hidden");
+      document.getElementById("tab-" + tab).classList.remove("hidden");
+    }
+
+    function logout() {
+      localStorage.removeItem("guest");
+      sb.auth.signOut();
+      location.href = "login.html";
+    }
+
+    // ---- 抽卡逻辑 ----
+    const CARDS = [
+      { name:"满月应愿", line:"今天的月光替你签收心愿。", task:"写下一个具体目标并设提醒", star:3 },
+      { name:"早起的体面", line:"清晨自带滤镜。", task:"提前30分钟起床，喝水+拉伸", star:2 },
+      { name:"步行治郁", line:"脚步比心绪先到达晴处。", task:"步行6000步以上", star:1 },
+      { name:"随手赞美", line:"真诚是最短的距离。", task:"今天真诚夸赞一次", star:0.5 }
+    ];
+
+    function loadHistory() {
+      const hist = JSON.parse(localStorage.getItem("drawHistory")||"[]");
+      const list = hist.map(h=>`<div class="card">${h.date}: ${h.name}｜${h.line}｜${h.task}｜☆${h.star}</div>`);
+      document.getElementById("drawHistory").innerHTML = list.join("");
+    }
+
+    document.getElementById("drawBtn").onclick = () => {
+      const today = new Date().toISOString().slice(0,10);
+      let hist = JSON.parse(localStorage.getItem("drawHistory")||"[]");
+      if(hist.find(h=>h.date===today)){
+        alert("今天已经抽过啦");
+        return;
+      }
+      const card = CARDS[Math.floor(Math.random()*CARDS.length)];
+      const result = { date: today, ...card };
+      hist.unshift(result);
+      localStorage.setItem("drawHistory", JSON.stringify(hist));
+      document.getElementById("drawResult").innerHTML =
+        `<div class="card"><b>${card.name}</b><br/>${card.line}<br/>任务: ${card.task}<br/>奖励: ☆${card.star}</div>`;
+      loadHistory();
+    };
+
+    // ---- 朋友圈逻辑 ----
+    function loadLocalMoments(){
+      const list = JSON.parse(localStorage.getItem("moments_local")||"[]");
+      document.getElementById("localMoments").innerHTML =
+        list.map(m=>`<div class="card">${m.text}</div>`).join("");
+    }
+
+    async function loadPublicMoments(){
+      if(isGuest){ document.getElementById("publicMoments").innerHTML="游客模式不可发帖"; return; }
+      let { data } = await sb.from("moments").select("*").order("created_at",{ascending:false}).limit(20);
+      document.getElementById("publicMoments").innerHTML =
+        (data||[]).map(m=>`<div class="card">${m.text} — ${m.user_email||''}</div>`).join("");
+    }
+
+    document.getElementById("addLocal").onclick = ()=>{
+      const text = document.getElementById("momentInput").value;
+      if(!text) return;
+      let list = JSON.parse(localStorage.getItem("moments_local")||"[]");
+      list.unshift({ text });
+      localStorage.setItem("moments_local", JSON.stringify(list));
+      loadLocalMoments();
+      document.getElementById("momentInput").value="";
+    };
+
+    document.getElementById("addPublic").onclick = async ()=>{
+      if(isGuest){ alert("游客不可发公开动态"); return; }
+      const text = document.getElementById("momentInput").value;
+      if(!text) return;
+      const email = session.user.email;
+      await sb.from("moments").insert({ text, user_email: email });
+      loadPublicMoments();
+      document.getElementById("momentInput").value="";
+    };
+
+    document.getElementById("clearLocal").onclick = ()=>{
+      localStorage.removeItem("moments_local");
+      loadLocalMoments();
+    };
+
+    document.getElementById("clearPublic").onclick = async ()=>{
+      if(isGuest){ alert("游客不可操作"); return; }
+      await sb.from("moments").delete().eq("user_email", session.user.email);
+      loadPublicMoments();
+    };
+
+    init();
+  </script>
+</body>
+</html>
