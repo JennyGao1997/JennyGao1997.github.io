@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>登录 - 我们的小世界</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 100px; }
+    input { padding: 8px; margin: 5px; }
+    button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>欢迎回来 💌</h1>
+  <div id="login">
+    <input type="email" id="email" placeholder="请输入邮箱" />
+    <button id="sendOtp">发送验证码</button><br/>
+    <input type="text" id="otp" placeholder="输入验证码" />
+    <button id="verifyOtp">验证并进入</button>
+  </div>
+  <p>或者</p>
+  <button id="guest">先逛逛（游客）</button>
+
+  <script>
+    const sb = window.supabase.createClient(
+      "https://kejqdzuwbeuemrdxxvrr.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtlanFkenV3YmV1ZW1yZHh4dnJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMjAyMzUsImV4cCI6MjA3MTg5NjIzNX0.GIwI_VODhEa5DTqEwx6Yp3tbuxc_nmqq5K31QDQLDTs"
+    );
+
+    document.getElementById("sendOtp").onclick = async () => {
+      const email = document.getElementById("email").value;
+      const { error } = await sb.auth.signInWithOtp({ email });
+      if (error) alert("发送失败: " + error.message);
+      else alert("验证码已发送，请查收邮箱");
+    };
+
+    document.getElementById("verifyOtp").onclick = async () => {
+      const email = document.getElementById("email").value;
+      const token = document.getElementById("otp").value;
+      const { error } = await sb.auth.verifyOtp({
+        email,
+        token,
+        type: "email"
+      });
+      if (error) alert("验证失败: " + error.message);
+      else {
+        localStorage.removeItem("guest");
+        location.href = "app.html";
+      }
+    };
+
+    document.getElementById("guest").onclick = () => {
+      localStorage.setItem("guest", "1");
+      location.href = "app.html";
+    };
+  </script>
+</body>
+</html>
